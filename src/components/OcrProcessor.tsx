@@ -6,13 +6,13 @@ import { parseScheduleText, deduplicateShifts } from "@/lib/parser";
 import { Shift } from "@/types";
 
 interface OcrProcessorProps {
-  imageFiles: File[];
-  onComplete: (shifts: Shift[], rawText: string) => void;
+  imageDataUrls: string[];
+  onComplete: (shifts: Shift[], rawText: string, warnings: string[]) => void;
   onError: (error: string) => void;
 }
 
 export default function OcrProcessor({
-  imageFiles,
+  imageDataUrls,
   onComplete,
   onError,
 }: OcrProcessorProps) {
@@ -20,7 +20,7 @@ export default function OcrProcessor({
   const [currentImage, setCurrentImage] = useState(0);
   const [status, setStatus] = useState("Initializing OCR engine...");
 
-  const totalImages = imageFiles.length;
+  const totalImages = imageDataUrls.length;
 
   useEffect(() => {
     let cancelled = false;
@@ -28,8 +28,9 @@ export default function OcrProcessor({
     async function run() {
       try {
         const allTexts: string[] = [];
+        const warnings: string[] = [];
 
-        for (let i = 0; i < imageFiles.length; i++) {
+        for (let i = 0; i < imageDataUrls.length; i++) {
           if (cancelled) return;
 
           setCurrentImage(i);
@@ -39,16 +40,31 @@ export default function OcrProcessor({
               : "Processing image..."
           );
 
-          const result = await processImage(imageFiles[i], (p) => {
-            if (!cancelled) {
-              // Scale progress across all images
-              const base = (i / totalImages) * 100;
-              const segment = (1 / totalImages) * 100;
-              setProgress(Math.round(base + (p / 100) * segment));
-            }
-          });
+          try {
+            const result = await processImage(imageDataUrls[i], (p) => {
+              if (!cancelled) {
+                const base = (i / totalImages) * 100;
+                const segment = (1 / totalImages) * 100;
+                setProgress(Math.round(base + (p / 100) * segment));
+              }
+            });
 
-          allTexts.push(result.text);
+            allTexts.push(result.text);
+
+            // Check if this image produced useful schedule text
+            const imageShifts = parseScheduleText(result.text);
+            if (imageShifts.length === 0) {
+              const label = totalImages > 1 ? `Image ${i + 1}` : "The image";
+              if (result.confidence < 30) {
+                warnings.push(`${label} couldn't be read. It may not be a schedule screenshot.`);
+              } else {
+                warnings.push(`${label} didn't contain any recognizable shifts.`);
+              }
+            }
+          } catch {
+            const label = totalImages > 1 ? `Image ${i + 1}` : "The image";
+            warnings.push(`${label} failed to process and was skipped.`);
+          }
         }
 
         if (cancelled) return;
@@ -62,7 +78,13 @@ export default function OcrProcessor({
           const cmp = a.date.localeCompare(b.date);
           return cmp !== 0 ? cmp : a.startTime.localeCompare(b.startTime);
         });
-        onComplete(shifts, combinedText);
+
+        if (shifts.length === 0 && warnings.length === 0) {
+          onError("No shifts found. Make sure you're uploading a screenshot of your schedule in day view.");
+          return;
+        }
+
+        onComplete(shifts, combinedText, warnings);
       } catch (e) {
         if (!cancelled) {
           onError((e as Error).message);
@@ -74,7 +96,7 @@ export default function OcrProcessor({
     return () => {
       cancelled = true;
     };
-  }, [imageFiles, totalImages, onComplete, onError]);
+  }, [imageDataUrls, totalImages, onComplete, onError]);
 
   return (
     <div className="space-y-4">

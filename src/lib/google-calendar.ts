@@ -2,7 +2,7 @@ import { Shift } from "@/types";
 
 const SCOPES = "https://www.googleapis.com/auth/calendar.events";
 
-export function getGoogleAuthUrl(): string {
+export function getGoogleAuthUrl(state: string): string {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const redirectUri = process.env.GOOGLE_REDIRECT_URI;
 
@@ -17,20 +17,29 @@ export function getGoogleAuthUrl(): string {
     scope: SCOPES,
     access_type: "offline",
     prompt: "consent",
+    state,
   });
 
   return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
 }
 
 export async function exchangeCodeForTokens(code: string) {
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const redirectUri = process.env.GOOGLE_REDIRECT_URI;
+
+  if (!clientId || !clientSecret || !redirectUri) {
+    throw new Error("Google OAuth credentials not configured");
+  }
+
   const response = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       code,
-      client_id: process.env.GOOGLE_CLIENT_ID!,
-      client_secret: process.env.GOOGLE_CLIENT_SECRET!,
-      redirect_uri: process.env.GOOGLE_REDIRECT_URI!,
+      client_id: clientId,
+      client_secret: clientSecret,
+      redirect_uri: redirectUri,
       grant_type: "authorization_code",
     }),
   });
@@ -78,13 +87,10 @@ export async function createCalendarEvents(
       if (response.ok) {
         created++;
       } else {
-        const err = await response.json();
-        errors.push(
-          `Failed to create event for ${shift.date}: ${err.error?.message || "Unknown error"}`
-        );
+        errors.push(`Failed to create event for ${shift.date}. Please check your calendar permissions.`);
       }
-    } catch (e) {
-      errors.push(`Network error creating event for ${shift.date}: ${(e as Error).message}`);
+    } catch {
+      errors.push(`Network error creating event for ${shift.date}.`);
     }
   }
 

@@ -4,17 +4,17 @@ import { Shift } from "@/types";
 
 export async function POST(request: NextRequest) {
   try {
-    const { accessToken, shifts } = (await request.json()) as {
-      accessToken: string;
-      shifts: Shift[];
-    };
+    // Read token from HttpOnly cookie — not from request body
+    const accessToken = request.cookies.get("google_access_token")?.value;
 
     if (!accessToken) {
       return NextResponse.json(
-        { error: "No access token provided" },
+        { error: "Not authenticated. Please sign in with Google first." },
         { status: 401 }
       );
     }
+
+    const { shifts } = (await request.json()) as { shifts: Shift[] };
 
     if (!shifts || shifts.length === 0) {
       return NextResponse.json(

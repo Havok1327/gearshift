@@ -2,7 +2,15 @@
   "permissions": {
     "allow": [
       "Bash(npx next build:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "WebFetch(domain:www.rei.com)",
+      "WebSearch",
+      "Bash(gh repo rename:*)",
+      "Bash(git remote get-url:*)",
+      "Bash(ls:*)",
+      "Bash(npm audit:*)"
     ]
   }
 }

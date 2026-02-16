@@ -9,25 +9,28 @@ import { Shift, WorkflowStep } from "@/types";
 
 export default function Home() {
   const [step, setStep] = useState<WorkflowStep>("upload");
-  const [imageFiles, setImageFiles] = useState<File[]>([]);
+  const [imageDataUrls, setImageDataUrls] = useState<string[]>([]);
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [rawText, setRawText] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [warnings, setWarnings] = useState<string[]>([]);
 
-  const handleImagesSelected = useCallback((files: File[]) => {
-    setImageFiles((prev) => [...prev, ...files]);
+  const handleImagesSelected = useCallback((dataUrls: string[]) => {
+    setImageDataUrls(dataUrls);
     setError(null);
     setStep("processing");
   }, []);
 
-  const handleOcrComplete = useCallback((extractedShifts: Shift[], text: string) => {
+  const handleOcrComplete = useCallback((extractedShifts: Shift[], text: string, ocrWarnings: string[]) => {
     setShifts(extractedShifts);
     setRawText(text);
+    setWarnings(ocrWarnings);
     setStep("review");
   }, []);
 
   const handleOcrError = useCallback((errorMsg: string) => {
     setError(errorMsg);
+    setImageDataUrls([]);
     setStep("upload");
   }, []);
 
@@ -37,10 +40,11 @@ export default function Home() {
 
   const handleReset = () => {
     setStep("upload");
-    setImageFiles([]);
+    setImageDataUrls([]);
     setShifts([]);
     setRawText("");
     setError(null);
+    setWarnings([]);
   };
 
   const steps: { key: WorkflowStep; label: string }[] = [
@@ -111,13 +115,13 @@ export default function Home() {
           {step === "upload" && (
             <ImageUpload
               onImagesSelected={handleImagesSelected}
-              existingCount={imageFiles.length}
+              existingCount={imageDataUrls.length}
             />
           )}
 
-          {step === "processing" && imageFiles.length > 0 && (
+          {step === "processing" && imageDataUrls.length > 0 && (
             <OcrProcessor
-              imageFiles={imageFiles}
+              imageDataUrls={imageDataUrls}
               onComplete={handleOcrComplete}
               onError={handleOcrError}
             />
@@ -125,6 +129,13 @@ export default function Home() {
 
           {step === "review" && (
             <div className="space-y-4 sm:space-y-6">
+              {warnings.length > 0 && (
+                <div className="p-3 bg-yellow-50 text-yellow-800 rounded-lg border border-yellow-200 text-sm space-y-1">
+                  {warnings.map((w, i) => (
+                    <p key={i}>{w}</p>
+                  ))}
+                </div>
+              )}
               <ShiftTable
                 shifts={shifts}
                 onShiftsChange={setShifts}
@@ -183,7 +194,7 @@ export default function Home() {
           <div className="px-4 sm:px-6 pb-4 sm:pb-6 text-sm text-gray-600 space-y-3">
             <ol className="list-decimal list-inside space-y-2">
               <li>
-                <strong className="text-gray-700">Take a screenshot</strong> — Open your scheduling app, go to the <strong>day view</strong>, and take screenshots of your upcoming shifts. You can upload multiple screenshots if your schedule spans several weeks.
+                <strong className="text-gray-700">Take a screenshot</strong> — Open your scheduling app, go to the <strong>day view</strong>, and take screenshots of your upcoming shifts. You can upload multiple screenshots if your schedule spans several weeks. Don&apos;t worry about overlap — duplicate shifts are automatically removed.
                 <img
                   src="/example-schedule.jpg"
                   alt="Example schedule screenshot showing day view with shifts"

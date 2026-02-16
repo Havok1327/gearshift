@@ -3,7 +3,7 @@
 import { useCallback, useState, useRef } from "react";
 
 interface ImageUploadProps {
-  onImagesSelected: (files: File[]) => void;
+  onImagesSelected: (dataUrls: string[]) => void;
   existingCount?: number;
 }
 
@@ -12,32 +12,25 @@ export default function ImageUpload({
   existingCount = 0,
 }: ImageUploadProps) {
   const [previews, setPreviews] = useState<string[]>([]);
-  const [files, setFiles] = useState<File[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const addFiles = useCallback(
-    (newFiles: File[]) => {
-      const imageFiles = newFiles.filter((f) => f.type.startsWith("image/"));
-      if (imageFiles.length === 0) {
-        alert("Please upload image files (PNG, JPG, or WEBP)");
-        return;
-      }
+  const addFiles = useCallback((newFiles: File[]) => {
+    const imageFiles = newFiles.filter((f) => f.type.startsWith("image/"));
+    if (imageFiles.length === 0) {
+      alert("Please upload image files (PNG, JPG, or WEBP)");
+      return;
+    }
 
-      // Generate previews for new files
-      imageFiles.forEach((file) => {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          setPreviews((prev) => [...prev, e.target?.result as string]);
-        };
-        reader.readAsDataURL(file);
-      });
-
-      const updated = [...files, ...imageFiles];
-      setFiles(updated);
-    },
-    [files]
-  );
+    imageFiles.forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const dataUrl = e.target?.result as string;
+        setPreviews((prev) => [...prev, dataUrl]);
+      };
+      reader.readAsDataURL(file);
+    });
+  }, []);
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
@@ -62,27 +55,22 @@ export default function ImageUpload({
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const selected = Array.from(e.target.files || []);
       if (selected.length > 0) addFiles(selected);
-      // Reset so the same files can be re-selected
       e.target.value = "";
     },
     [addFiles]
   );
 
-  const removeFile = useCallback(
-    (index: number) => {
-      setFiles((prev) => prev.filter((_, i) => i !== index));
-      setPreviews((prev) => prev.filter((_, i) => i !== index));
-    },
-    []
-  );
+  const removeFile = useCallback((index: number) => {
+    setPreviews((prev) => prev.filter((_, i) => i !== index));
+  }, []);
 
   const handleSubmit = useCallback(() => {
-    if (files.length > 0) {
-      onImagesSelected(files);
+    if (previews.length > 0) {
+      onImagesSelected(previews);
     }
-  }, [files, onImagesSelected]);
+  }, [previews, onImagesSelected]);
 
-  const totalCount = existingCount + files.length;
+  const totalCount = existingCount + previews.length;
 
   return (
     <div className="space-y-4">
@@ -120,7 +108,7 @@ export default function ImageUpload({
             />
           </svg>
           <p className="text-base sm:text-lg font-medium text-gray-700">
-            {files.length === 0
+            {previews.length === 0
               ? "Tap to upload your schedule screenshots"
               : "Tap to add more screenshots"}
           </p>
@@ -170,7 +158,7 @@ export default function ImageUpload({
               e.stopPropagation();
               handleSubmit();
             }}
-            disabled={files.length === 0}
+            disabled={previews.length === 0}
             className="w-full py-3 sm:py-2 bg-blue-500 text-white rounded-lg active:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
           >
             Process {totalCount} {totalCount === 1 ? "Image" : "Images"}
