@@ -111,8 +111,11 @@ export default function ExportOptions({ shifts }: ExportOptionsProps) {
       {/* Step-through UI when adding shifts one at a time */}
       {currentShiftIndex >= 0 && currentShiftIndex < validShifts.length && (
         <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl space-y-3">
-          <p className="text-sm text-blue-800">
-            Adding shift {currentShiftIndex + 1} of {validShifts.length} — save it in Google Calendar, then come back and tap below.
+          <p className="text-sm font-medium text-blue-800">
+            Shift {currentShiftIndex + 1} of {validShifts.length}
+          </p>
+          <p className="text-sm text-blue-700">
+            Save the event in Google Calendar, then switch back to this tab to continue.
           </p>
           <button
             onClick={handleNextShift}
