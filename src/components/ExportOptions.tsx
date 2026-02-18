@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Shift } from "@/types";
 import { generateIcs, downloadIcs } from "@/lib/ics-generator";
 
@@ -21,6 +21,14 @@ function buildGoogleCalendarUrl(shift: Shift): string {
 
 export default function ExportOptions({ shifts }: ExportOptionsProps) {
   const [currentShiftIndex, setCurrentShiftIndex] = useState(-1);
+  const [isIos, setIsIos] = useState(false);
+
+  useEffect(() => {
+    setIsIos(
+      /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+    );
+  }, []);
 
   const validShifts = shifts.filter((s) => s.date && s.startTime && s.endTime);
 
@@ -66,20 +74,26 @@ export default function ExportOptions({ shifts }: ExportOptionsProps) {
           onClick={handleDownloadIcs}
           className="flex items-center justify-center gap-2 px-6 py-4 bg-blue-500 text-white rounded-xl active:bg-blue-600 transition-colors font-medium min-h-[56px]"
         >
-          <svg
-            className="w-5 h-5"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-            />
-          </svg>
-          Download .ics File
+          {isIos ? (
+            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V6a2 2 0 00-2-2zm0 16H5V10h14v10zm0-12H5V6h14v2zm-7 5h5v5h-5v-5z" />
+            </svg>
+          ) : (
+            <svg
+              className="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+              />
+            </svg>
+          )}
+          {isIos ? "Add to Apple Calendar" : "Download .ics File"}
         </button>
 
         <button
@@ -135,8 +149,9 @@ export default function ExportOptions({ shifts }: ExportOptionsProps) {
       )}
 
       <p className="text-xs text-gray-400 text-center">
-        The .ics file works with Apple Calendar, Outlook, or any calendar app.
-        Google Calendar opens each shift for you to save — no sign-in needed.
+        {isIos
+          ? "Apple Calendar adds all shifts at once. Google Calendar opens each shift for you to save."
+          : "The .ics file works with Apple Calendar, Outlook, or any calendar app. Google Calendar opens each shift for you to save — no sign-in needed."}
       </p>
     </div>
   );
