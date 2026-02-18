@@ -268,6 +268,9 @@ export default function Home() {
         <p className="mt-2 text-center text-xs text-gray-400">
           Results may not be 100% accurate. Always verify your shifts against your official schedule. We are not responsible for missed or incorrect shifts.
         </p>
+        <p className="mt-2 text-center text-xs text-gray-300">
+          v{process.env.APP_VERSION}
+        </p>
       </div>
     </main>
   );
