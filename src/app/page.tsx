@@ -14,6 +14,7 @@ export default function Home() {
   const [rawText, setRawText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
+  const [reminderDismissed, setReminderDismissed] = useState(false);
 
   const handleImagesSelected = useCallback((dataUrls: string[]) => {
     setImageDataUrls(dataUrls);
@@ -45,6 +46,7 @@ export default function Home() {
     setRawText("");
     setError(null);
     setWarnings([]);
+    setReminderDismissed(false);
   };
 
   const steps: { key: WorkflowStep; label: string }[] = [
@@ -168,6 +170,38 @@ export default function Home() {
           {step === "export" && (
             <div className="space-y-4 sm:space-y-6">
               <ExportOptions shifts={shifts} />
+
+              {/* Screenshot cleanup reminder */}
+              {imageDataUrls.length > 0 && !reminderDismissed && (
+                <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl space-y-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-sm text-amber-800">
+                      You can now delete {imageDataUrls.length === 1 ? "this screenshot" : `these ${imageDataUrls.length} screenshots`} from your Photos app.
+                    </p>
+                    <button
+                      onClick={() => setReminderDismissed(true)}
+                      className="shrink-0 text-amber-400 active:text-amber-600 transition-colors p-1 -m-1"
+                      aria-label="Dismiss reminder"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                  <div className="flex gap-2 overflow-x-auto pb-1">
+                    {imageDataUrls.map((src, i) => (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        key={i}
+                        src={src}
+                        alt={`Screenshot ${i + 1}`}
+                        className="h-20 w-auto rounded-lg border border-amber-200 shrink-0"
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="flex flex-col-reverse sm:flex-row gap-2 sm:gap-3 sm:justify-end">
                 <button
                   onClick={handleReset}
