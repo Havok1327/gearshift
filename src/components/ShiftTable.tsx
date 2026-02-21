@@ -183,21 +183,6 @@ export default function ShiftTable({
         <pre className="mt-2 p-3 bg-gray-50 rounded-lg text-xs text-gray-600 whitespace-pre-wrap overflow-x-auto max-h-48 overflow-y-auto">
           {rawText}
         </pre>
-        <button
-          onClick={() => {
-            fetch("/api/debug", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ text: rawText }),
-            })
-              .then((r) => r.json())
-              .then(() => alert("Saved to ocr-output.txt"))
-              .catch(() => alert("Failed to save"));
-          }}
-          className="hidden mt-2 px-3 py-2 text-xs bg-gray-200 text-gray-700 rounded-lg active:bg-gray-300 min-h-[44px]"
-        >
-          Save raw text to project
-        </button>
       </details>
     </div>
   );

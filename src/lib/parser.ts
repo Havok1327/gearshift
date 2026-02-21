@@ -14,7 +14,7 @@ const MONTHS: Record<string, string> = {
 const DAY_NAMES = /^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)/i;
 
 const MONTH_PREFIX_RE = /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)/i;
-const TIME_RANGE_RE = /(\d{1,2}:\d{2}\s*[AaPp][Mm])\s*[-–—]\s*(\d{1,2}:\d{2}\s*[AaPp][Mm])/;
+const TIME_RANGE_RE = /(\d{1,2}[:.]\d{2}\s*[AaPp][Mm])\s*[-–—]\s*(\d{1,2}[:.]\d{2}\s*[AaPp][Mm])/;
 
 /**
  * Parse raw OCR text from mobile schedule screenshots.
@@ -117,6 +117,28 @@ export function parseScheduleText(rawText: string): Shift[] {
       continue;
     }
 
+    // Format B+ / Format A+: day number + OCR noise token after a day-of-week line
+    // e.g. "26 & HG fit"        → label, time on next line (Format B+)
+    //      "3 > 8:00 AM-4:30"   → time on this line (Format A+), fall through
+    //      "28 @» 1.00 PM-9:30" → time on this line with OCR'd period, fall through
+    if (afterDayName) {
+      const noisyDayLine = line.match(/^(\d{1,2})\s+\S+\s*(.*)/);
+      if (noisyDayLine) {
+        const dayNum = noisyDayLine[1].padStart(2, "0");
+        const remainder = noisyDayLine[2].trim();
+        if (TIME_RANGE_RE.test(remainder)) {
+          // Time is on this same line — set pendingDay and fall through to timeMatch
+          pendingDay = dayNum;
+        } else {
+          // Time is on next line — Format B+ with noise
+          pendingDay = dayNum;
+          pendingLabel = remainder;
+          afterDayName = false;
+          continue;
+        }
+      }
+    }
+
     afterDayName = false;
 
     // Time range line (both formats)
@@ -217,7 +239,7 @@ function normalizeTo24h(timeStr: string): string {
   const isPM = cleaned.includes("P");
   const isAM = cleaned.includes("A");
   const timePart = cleaned.replace(/[APM\s]/g, "");
-  const [hourStr, minute] = timePart.split(":");
+  const [hourStr, minute] = timePart.split(/[:.]/);
   let hour = parseInt(hourStr, 10);
 
   if (isPM && hour !== 12) hour += 12;

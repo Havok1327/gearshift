@@ -15,6 +15,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [reminderDismissed, setReminderDismissed] = useState(false);
+  const [bugCopied, setBugCopied] = useState(false);
 
   const handleImagesSelected = useCallback((dataUrls: string[]) => {
     setImageDataUrls(dataUrls);
@@ -47,7 +48,22 @@ export default function Home() {
     setError(null);
     setWarnings([]);
     setReminderDismissed(false);
+    setBugCopied(false);
   };
+
+  const handleReportBug = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(rawText);
+    } catch {
+      // clipboard unavailable, continue anyway
+    }
+    const body = encodeURIComponent(
+      `GearShift v${process.env.APP_VERSION} Bug Report\n\nDescribe the issue:\n\n\n\n— OCR text (paste from clipboard) —\n`
+    );
+    window.location.href = `sms:?body=${body}`;
+    setBugCopied(true);
+    setTimeout(() => setBugCopied(false), 4000);
+  }, [rawText]);
 
   const steps: { key: WorkflowStep; label: string }[] = [
     { key: "upload", label: "Upload" },
@@ -164,6 +180,23 @@ export default function Home() {
                   Continue to Export
                 </button>
               </div>
+              <div className="flex justify-center pt-1">
+                <button
+                  onClick={handleReportBug}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-medium bg-red-50 text-red-500 border border-red-200 active:bg-red-100 transition-colors"
+                >
+                  {bugCopied ? (
+                    "OCR text copied — paste it into your message"
+                  ) : (
+                    <>
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                      </svg>
+                      Something look wrong? Report a bug
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           )}
 
@@ -244,7 +277,7 @@ export default function Home() {
               <li>
                 <strong className="text-gray-700">Export</strong> — Choose your method:
                 <ul className="list-disc list-inside ml-4 mt-1 space-y-1">
-                  <li><strong>Download .ics</strong> — Works with Apple Calendar, Outlook, and Google Calendar (import). On iPhone/iPad, use Safari for best results.</li>
+                  <li><strong>Add to Calendar / Download .ics</strong> — Exports all shifts as a single .ics calendar file. Works with any calendar app — Apple Calendar, Outlook, Google Calendar (import), and more. On iPhone/iPad, use Safari for best results.</li>
                   <li><strong>Add to Google Calendar</strong> — Opens each shift one by one. Save each event, then tap &ldquo;Next Shift.&rdquo;</li>
                 </ul>
               </li>
