@@ -10,6 +10,7 @@ A Next.js 14 web app that converts work schedule screenshots into calendar event
 - **Tesseract.js v7** — browser-based OCR
 - **ics v3** — generates `.ics` files
 - **googleapis** — installed but the Google Calendar flow uses direct URL opens, no OAuth
+- **Formspree** — client-side bug report form submissions (endpoint: `https://formspree.io/f/meelrayd`)
 
 ## File Map
 ```
@@ -24,8 +25,8 @@ src/
       calendar/sync/      # Unused sync route
   components/
     ImageUpload.tsx        # Drag-and-drop + file input; emits dataUrls[]
-    OcrProcessor.tsx       # Runs Tesseract on each image, shows progress, calls parser
-    ShiftTable.tsx         # Editable shift cards + bulk title rename + raw OCR debug view
+    OcrProcessor.tsx       # Runs Tesseract on each image, shows progress, calls parser; tags each shift with imageIndex
+    ShiftTable.tsx         # Editable shift cards + bulk title rename + raw OCR debug view + per-card screenshot viewer
     ExportOptions.tsx      # ICS download button + Google Calendar step-through UI
   lib/
     ocr.ts                 # Thin Tesseract.js wrapper → { text, confidence }
@@ -43,6 +44,7 @@ interface Shift {
   startTime: string;  // HH:mm (24h)
   endTime: string;    // HH:mm (24h)
   title: string;
+  imageIndex?: number; // which source screenshot this shift came from
 }
 
 type WorkflowStep = "upload" | "processing" | "review" | "export";
@@ -74,14 +76,27 @@ perf food stock                   ← optional label before time
 REI/REI/.../Product Movement/Stocking
 ```
 
+**Format B+/A+** (noisy day lines) — day number + OCR noise token on one line:
+```
+26 & HG fit          ← noise + label, time on next line (B+)
+3 > 8:00 AM-4:30 PM  ← noise + time on same line (A+)
+28 @» 1.00 PM-9:30   ← noise + OCR'd period separator (A+)
+```
+
 **State machine variables**: `afterDayName`, `pendingDay`, `pendingLabel`, `skipNextShift`
 
 **Title priority**: `pendingLabel` (shift type label above the time) → last two slash-path segments below the time (e.g. `"Hardgoods - Action Sports"`)
 
 **Filtered/skipped**: "Time Off Unpaid" entries, `[duration]` lines like `[7:30]`, UI chrome (Home/Inbox/Menu/Request)
 
+**Time separator**: `TIME_RANGE_RE` accepts both `:` and `.` (e.g. `1.00 PM`) — OCR sometimes misreads colons as periods.
+
 - Deduplication key: `date|startTime|endTime`
 - ICS UIDs are stable (`shift-YYYY-MM-DD@gearshift`) so re-importing updates rather than duplicates
+
+## Review Step Features
+- **Per-shift screenshot viewer**: photo icon on each card opens a lightbox showing the source screenshot (`imageIndex` on `Shift` tracks which image it came from)
+- **Bug report button**: red pill button opens a Formspree modal — user describes the issue, schedule data attaches automatically
 
 ## iOS-Specific Behavior
 - Detected via `userAgent` or `platform === "MacIntel" && maxTouchPoints > 1`
@@ -91,12 +106,17 @@ REI/REI/.../Product Movement/Stocking
 ## Google Calendar Flow
 No API or OAuth. Uses `https://calendar.google.com/calendar/render?action=TEMPLATE&text=...&dates=...` URLs. User saves each event manually; the app provides a "Next Shift" button to step through them sequentially.
 
+## Bug Reporting
+Formspree endpoint: `https://formspree.io/f/meelrayd`
+Reports include user's description + full schedule data + app version. Received reports can be pasted into Claude to debug parser issues.
+
 ## Version
-v1.0.0 — displayed in footer via `process.env.APP_VERSION`.
+v1.75.0 — displayed in footer via `process.env.APP_VERSION`.
+**Note:** `APP_VERSION` is baked in at build time — restart dev server after bumping `package.json`.
 
 ## Dev Commands
 ```bash
-npm run dev    # start dev server (localhost:3000)
+npm run dev    # start dev server (localhost:3000, auto-increments if busy)
 npm run build
 npm run lint
 ```

@@ -349,7 +349,7 @@ export default function Home() {
         </div>
 
         {/* How to Use — collapsible help section */}
-        <details className="mt-4 sm:mt-6 bg-white rounded-2xl shadow-sm border border-gray-200">
+        <details key={step} className="mt-4 sm:mt-6 bg-white rounded-2xl shadow-sm border border-gray-200">
           <summary className="px-4 sm:px-6 py-3 sm:py-4 cursor-pointer text-sm sm:text-base font-medium text-gray-700 hover:text-gray-900 transition-colors select-none">
             How to Use
           </summary>
