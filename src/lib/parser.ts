@@ -48,6 +48,7 @@ export function parseScheduleText(rawText: string): Shift[] {
 
   let currentMonth = "";
   let currentYear = "";
+  let lastDayNum = 0; // tracks last processed day for month-rollover detection
 
   // State for Format B parsing
   let afterDayName = false;  // true after seeing Mon/Tue/etc.
@@ -62,6 +63,16 @@ export function parseScheduleText(rawText: string): Shift[] {
     skipNextShift = false;
   }
 
+  function advanceMonth() {
+    const m = parseInt(currentMonth, 10);
+    if (m === 12) {
+      currentMonth = "01";
+      currentYear = String(parseInt(currentYear, 10) + 1);
+    } else {
+      currentMonth = String(m + 1).padStart(2, "0");
+    }
+  }
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
@@ -72,6 +83,7 @@ export function parseScheduleText(rawText: string): Shift[] {
     if (monthYearMatch) {
       currentMonth = MONTHS[monthYearMatch[1].toLowerCase().slice(0, 3)];
       currentYear = monthYearMatch[2];
+      lastDayNum = 0;
       resetDayState();
       continue;
     }
@@ -82,6 +94,7 @@ export function parseScheduleText(rawText: string): Shift[] {
     );
     if (weekHeaderMatch) {
       currentMonth = MONTHS[weekHeaderMatch[1].toLowerCase().slice(0, 3)];
+      lastDayNum = 0;
       resetDayState();
       continue;
     }
@@ -166,6 +179,14 @@ export function parseScheduleText(rawText: string): Shift[] {
         resetDayState();
         continue;
       }
+
+      // Detect month rollover: if this day is much earlier than the last one,
+      // the schedule has crossed into the next month without a new month header.
+      const dayNum = parseInt(day, 10);
+      if (lastDayNum > 0 && dayNum < lastDayNum && (lastDayNum - dayNum) > 15) {
+        advanceMonth();
+      }
+      lastDayNum = dayNum;
 
       const date = `${currentYear}-${currentMonth}-${day}`;
 
