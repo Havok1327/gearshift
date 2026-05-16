@@ -50,6 +50,16 @@ export function parseScheduleText(rawText: string): Shift[] {
   let currentYear = "";
   let lastDayNum = 0; // tracks last processed day for month-rollover detection
 
+  // Set when a week header spans two months (e.g. "May 31 - June 06"), so each
+  // day in that week is assigned to the correct month and year.
+  let weekSpan: {
+    startDay: number;
+    startMonth: string;
+    startYear: string;
+    endMonth: string;
+    endYear: string;
+  } | null = null;
+
   // State for Format B parsing
   let afterDayName = false;  // true after seeing Mon/Tue/etc.
   let pendingDay = "";       // day number seen on its own line
@@ -84,17 +94,34 @@ export function parseScheduleText(rawText: string): Shift[] {
       currentMonth = MONTHS[monthYearMatch[1].toLowerCase().slice(0, 3)];
       currentYear = monthYearMatch[2];
       lastDayNum = 0;
+      weekSpan = null;
       resetDayState();
       continue;
     }
 
-    // Week header: "February 22 - 28" or "March O1 - 07" — can update current month
+    // Week header: "February 22 - 28", "March O1 - 07", or a cross-month range
+    // like "May 31 - June 06". Captures: [1] start month, [2] start day,
+    // [3] optional end month. Cross-month ranges record a weekSpan boundary.
     const weekHeaderMatch = line.match(
-      /^(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\S+\s*[-–—]\s*\S+/i
+      /^(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(\S+)\s*[-–—]\s*(?:(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+)?\S+/i
     );
     if (weekHeaderMatch) {
-      currentMonth = MONTHS[weekHeaderMatch[1].toLowerCase().slice(0, 3)];
-      lastDayNum = 0;
+      const startMonth = MONTHS[weekHeaderMatch[1].toLowerCase().slice(0, 3)];
+      const startDay = parseInt(weekHeaderMatch[2].replace(/\D/g, ""), 10);
+      const endMonthName = weekHeaderMatch[3];
+      currentMonth = startMonth;
+
+      if (endMonthName && startDay) {
+        const endMonth = MONTHS[endMonthName.toLowerCase().slice(0, 3)];
+        // A Dec→Jan range crosses into the next year.
+        const endYear =
+          parseInt(endMonth, 10) < parseInt(startMonth, 10)
+            ? String(parseInt(currentYear, 10) + 1)
+            : currentYear;
+        weekSpan = { startDay, startMonth, startYear: currentYear, endMonth, endYear };
+      } else {
+        weekSpan = null;
+      }
       resetDayState();
       continue;
     }
@@ -180,15 +207,30 @@ export function parseScheduleText(rawText: string): Shift[] {
         continue;
       }
 
-      // Detect month rollover: if this day is much earlier than the last one,
-      // the schedule has crossed into the next month without a new month header.
       const dayNum = parseInt(day, 10);
-      if (lastDayNum > 0 && dayNum < lastDayNum && (lastDayNum - dayNum) > 15) {
+      let year = currentYear;
+      let month = currentMonth;
+
+      if (weekSpan) {
+        // Cross-month week: days on/after the start day belong to the first
+        // month; smaller day numbers have rolled into the second month.
+        if (dayNum >= weekSpan.startDay) {
+          month = weekSpan.startMonth;
+          year = weekSpan.startYear;
+        } else {
+          month = weekSpan.endMonth;
+          year = weekSpan.endYear;
+        }
+      } else if (lastDayNum > 0 && dayNum < lastDayNum && lastDayNum - dayNum > 15) {
+        // No week header to disambiguate: a large backward jump in the day
+        // number means the schedule crossed into the next month.
         advanceMonth();
+        month = currentMonth;
+        year = currentYear;
       }
       lastDayNum = dayNum;
 
-      const date = `${currentYear}-${currentMonth}-${day}`;
+      const date = `${year}-${month}-${day}`;
 
       // Title priority:
       //   1. pendingLabel (shift type label above the time row, e.g. "perf food stock")
