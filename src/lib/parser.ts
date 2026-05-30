@@ -13,8 +13,51 @@ const MONTHS: Record<string, string> = {
 
 const DAY_NAMES = /^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)/i;
 
+const DAY_INDEX: Record<string, number> = {
+  sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6,
+};
+
 const MONTH_PREFIX_RE = /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)/i;
 const TIME_RANGE_RE = /(\d{1,2}[:.]\d{2}\s*[AaPp][Mm])\s*[-–—]\s*(\d{1,2}[:.]\d{2}\s*[AaPp][Mm])/;
+
+function dayNameToIndex(name: string): number | null {
+  const key = name.toLowerCase().slice(0, 3);
+  return key in DAY_INDEX ? DAY_INDEX[key] : null;
+}
+
+/**
+ * When OCR garbles a day number (e.g. "11" misread as "N"), infer the day
+ * from the surviving day-of-week name by scanning forward for the next
+ * concrete day-name + day-number pair and back-calculating the weekday offset.
+ */
+function inferDayFromDayName(
+  dayName: string,
+  startIdx: number,
+  lines: string[]
+): number | null {
+  const currentIdx = dayNameToIndex(dayName);
+  if (currentIdx === null) return null;
+
+  for (let j = startIdx; j < lines.length; j++) {
+    const dayNameMatch = lines[j].match(/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)/i);
+    if (!dayNameMatch || lines[j].length > 10) continue;
+
+    for (let k = j + 1; k < lines.length && k - j <= 5; k++) {
+      const m = lines[k].match(/^(\d{1,2})(?:\s|$)/);
+      if (!m) continue;
+      const num = parseInt(m[1], 10);
+      if (num < 1 || num > 31) break;
+
+      const nextIdx = dayNameToIndex(dayNameMatch[1]);
+      if (nextIdx === null) break;
+      let offset = (nextIdx - currentIdx + 7) % 7;
+      if (offset === 0) offset = 7;
+      const inferred = num - offset;
+      return inferred >= 1 && inferred <= 31 ? inferred : null;
+    }
+  }
+  return null;
+}
 
 /**
  * Parse raw OCR text from mobile schedule screenshots.
@@ -61,14 +104,16 @@ export function parseScheduleText(rawText: string): Shift[] {
   } | null = null;
 
   // State for Format B parsing
-  let afterDayName = false;  // true after seeing Mon/Tue/etc.
-  let pendingDay = "";       // day number seen on its own line
-  let pendingLabel = "";     // optional shift label between day# and time
-  let skipNextShift = false; // true when "Time Off" detected
+  let afterDayName = false;   // true after seeing Mon/Tue/etc.
+  let pendingDay = "";        // day number seen on its own line
+  let pendingDayName = "";    // surviving day-of-week name, used to infer a garbled day number
+  let pendingLabel = "";      // optional shift label between day# and time
+  let skipNextShift = false;  // true when "Time Off" detected
 
   function resetDayState() {
     afterDayName = false;
     pendingDay = "";
+    pendingDayName = "";
     pendingLabel = "";
     skipNextShift = false;
   }
@@ -130,6 +175,7 @@ export function parseScheduleText(rawText: string): Shift[] {
     if (DAY_NAMES.test(line) && line.length <= 10) {
       resetDayState();
       afterDayName = true;
+      pendingDayName = line;
       continue;
     }
 
@@ -199,6 +245,15 @@ export function parseScheduleText(rawText: string): Shift[] {
         const oldFormatMatch = line.match(/^(\d{1,2})\s+/);
         if (oldFormatMatch) {
           day = oldFormatMatch[1].padStart(2, "0");
+        }
+      }
+
+      // OCR-garbled day: infer from the surviving day-of-week name
+      // (e.g. "Thu" line survived but "11" came through as "N").
+      if (!day && pendingDayName) {
+        const inferred = inferDayFromDayName(pendingDayName, i + 1, lines);
+        if (inferred !== null) {
+          day = String(inferred).padStart(2, "0");
         }
       }
 
