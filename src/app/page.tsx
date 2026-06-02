@@ -35,7 +35,18 @@ export default function Home() {
   }, []);
 
   const handleOcrComplete = useCallback((extractedShifts: Shift[], text: string, ocrWarnings: string[]) => {
-    setShifts(extractedShifts);
+    // Apply this device's saved default title (if any) to every freshly
+    // extracted shift. Done here — once, at extraction time — so later
+    // per-shift edits in the review step are never clobbered.
+    const defaultTitle =
+      typeof window !== "undefined"
+        ? localStorage.getItem("gearshift-default-title")?.trim()
+        : null;
+    setShifts(
+      defaultTitle
+        ? extractedShifts.map((s) => ({ ...s, title: defaultTitle }))
+        : extractedShifts
+    );
     setRawText(text);
     setWarnings(ocrWarnings);
     setStep("review");

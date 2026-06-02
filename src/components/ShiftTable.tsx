@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Shift } from "@/types";
 
 interface ShiftTableProps {
@@ -9,6 +10,8 @@ interface ShiftTableProps {
   onViewScreenshot?: (index: number) => void;
 }
 
+const DEFAULT_TITLE_KEY = "gearshift-default-title";
+
 let nextId = 1000;
 
 export default function ShiftTable({
@@ -17,6 +20,23 @@ export default function ShiftTable({
   rawText,
   onViewScreenshot,
 }: ShiftTableProps) {
+  // Per-device default title, persisted in localStorage. Loaded after mount
+  // (localStorage isn't available during SSR).
+  const [defaultTitle, setDefaultTitle] = useState("");
+  useEffect(() => {
+    setDefaultTitle(localStorage.getItem(DEFAULT_TITLE_KEY) ?? "");
+  }, []);
+
+  const handleDefaultTitleChange = (val: string) => {
+    setDefaultTitle(val);
+    if (val.trim()) {
+      localStorage.setItem(DEFAULT_TITLE_KEY, val);
+      onShiftsChange(shifts.map((s) => ({ ...s, title: val })));
+    } else {
+      localStorage.removeItem(DEFAULT_TITLE_KEY);
+    }
+  };
+
   const updateShift = (id: string, field: keyof Shift, value: string) => {
     onShiftsChange(
       shifts.map((s) => (s.id === id ? { ...s, [field]: value } : s))
@@ -54,25 +74,27 @@ export default function ShiftTable({
         </button>
       </div>
 
-      {/* Bulk title override */}
+      {/* Default title for all shifts — persisted per device */}
       {shifts.length > 0 && (
         <div>
           <label className="block text-xs font-medium text-gray-500 mb-1">
-            Set title for all shifts (leave blank to keep individual titles)
+            Default title for all shifts
+            <span className="font-normal text-gray-400"> — saved on this device</span>
           </label>
           <div className="flex gap-2">
             <input
               type="text"
-              placeholder='e.g. Work Shift'
-              onChange={(e) => {
-                const val = e.target.value;
-                if (val) {
-                  onShiftsChange(shifts.map((s) => ({ ...s, title: val })));
-                }
-              }}
+              value={defaultTitle}
+              placeholder="e.g. Shift @ REI"
+              onChange={(e) => handleDefaultTitleChange(e.target.value)}
               className="flex-1 px-3 py-2.5 border border-gray-300 rounded-lg text-base focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
             />
           </div>
+          <p className="mt-1 text-xs text-gray-400">
+            {defaultTitle.trim()
+              ? "Applied to every shift and remembered next time on this device."
+              : "Leave blank to keep the individual titles from your schedule."}
+          </p>
         </div>
       )}
 
