@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import ImageUpload from "@/components/ImageUpload";
 import OcrProcessor from "@/components/OcrProcessor";
 import ShiftTable from "@/components/ShiftTable";
@@ -20,6 +20,13 @@ export default function Home() {
   const [bugSubmitting, setBugSubmitting] = useState(false);
   const [bugSubmitted, setBugSubmitted] = useState(false);
   const [selectedScreenshot, setSelectedScreenshot] = useState<number | null>(null);
+
+  // Scroll back to the top whenever the workflow step changes — otherwise the
+  // browser keeps the previous scroll position and (e.g.) the shorter export
+  // page leaves the user stranded at the bottom.
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [step]);
 
   const handleImagesSelected = useCallback((dataUrls: string[]) => {
     setImageDataUrls(dataUrls);
