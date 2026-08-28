@@ -26,10 +26,11 @@ src/
   components/
     ImageUpload.tsx        # Drag-and-drop + file input; emits dataUrls[]
     OcrProcessor.tsx       # Runs Tesseract on each image, shows progress, calls parser; tags each shift with imageIndex
-    ShiftTable.tsx         # Editable shift cards + bulk title rename + raw OCR debug view + per-card screenshot viewer
+    ShiftTable.tsx         # Editable shift cards + per-device default title + raw OCR debug view + per-card screenshot viewer
     ExportOptions.tsx      # ICS download button + Google Calendar step-through UI
   lib/
     ocr.ts                 # Thin Tesseract.js wrapper → { text, confidence }
+    id.ts                  # Shared collision-free id generator (crypto.randomUUID)
     parser.ts              # Regex parser: OCR text → Shift[]; deduplication; 12h→24h
     ics-generator.ts       # Shift[] → ICS string; iOS vs desktop download strategy
   types/
@@ -92,9 +93,16 @@ REI/REI/.../Product Movement/Stocking
 **Time separator**: `TIME_RANGE_RE` accepts both `:` and `.` (e.g. `1.00 PM`) — OCR sometimes misreads colons as periods.
 
 - Deduplication key: `date|startTime|endTime`
-- ICS UIDs are stable (`shift-YYYY-MM-DD@gearshift`) so re-importing updates rather than duplicates
+- ICS UIDs are `shift-YYYY-MM-DD@gearshift` for the first shift of a day and
+  `shift-YYYY-MM-DD-<n>@gearshift` for later ones, where `<n>` is the shift's
+  ordinal within that day (sorted by start time). Two properties this buys:
+  same-day shifts don't collide onto one event, and editing a shift's *time*
+  doesn't change its UID, so re-importing a correction updates the existing
+  event rather than adding a second one. The first-of-day UID keeps the old
+  bare-date form so events exported before v1.75.6 still update in place.
 
 ## Review Step Features
+- **Per-device default title**: the "Default title for all shifts" box persists to `localStorage` (key `gearshift-default-title`). Typing into it applies to every shift and saves the value. It's auto-applied to all freshly extracted shifts in `page.tsx handleOcrComplete` — done once at extraction time so later per-shift edits aren't clobbered. The box is pre-filled from `localStorage` on mount (`ShiftTable.tsx`); clearing it removes the default and keeps the parsed titles. Per-device/per-browser by nature — not synced across a user's own devices.
 - **Per-shift screenshot viewer**: photo icon on each card opens a lightbox showing the source screenshot (`imageIndex` on `Shift` tracks which image it came from)
 - **Bug report button**: red pill button opens a Formspree modal — user describes the issue, schedule data attaches automatically
 
@@ -111,7 +119,7 @@ Formspree endpoint: `https://formspree.io/f/meelrayd`
 Reports include user's description + full schedule data + app version. Received reports can be pasted into Claude to debug parser issues.
 
 ## Version
-v1.75.0 — displayed in footer via `process.env.APP_VERSION`.
+v1.75.6 — displayed in footer via `process.env.APP_VERSION`.
 **Note:** `APP_VERSION` is baked in at build time — restart dev server after bumping `package.json`.
 
 ## Dev Commands

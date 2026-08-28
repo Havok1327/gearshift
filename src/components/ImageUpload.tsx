@@ -5,11 +5,14 @@ import { useCallback, useState, useRef } from "react";
 interface ImageUploadProps {
   onImagesSelected: (dataUrls: string[]) => void;
   existingCount?: number;
+  /** Provided only when there's already a schedule to go back to. */
+  onCancel?: () => void;
 }
 
 export default function ImageUpload({
   onImagesSelected,
   existingCount = 0,
+  onCancel,
 }: ImageUploadProps) {
   const [previews, setPreviews] = useState<string[]>([]);
   const [isDragging, setIsDragging] = useState(false);
@@ -18,7 +21,7 @@ export default function ImageUpload({
   const addFiles = useCallback((newFiles: File[]) => {
     const imageFiles = newFiles.filter((f) => f.type.startsWith("image/"));
     if (imageFiles.length === 0) {
-      alert("Please upload image files (PNG, JPG, or WEBP)");
+      alert("Please add image files (PNG, JPG, or WEBP)");
       return;
     }
 
@@ -109,7 +112,7 @@ export default function ImageUpload({
           </svg>
           <p className="text-base sm:text-lg font-medium text-gray-700">
             {previews.length === 0
-              ? "Tap to upload your schedule screenshots"
+              ? "Tap to add your schedule screenshots"
               : "Tap to add more screenshots"}
           </p>
           <p className="text-sm text-gray-500">
@@ -123,7 +126,8 @@ export default function ImageUpload({
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <p className="text-sm font-medium text-gray-700">
-              {totalCount} {totalCount === 1 ? "image" : "images"} selected
+              {previews.length} {previews.length === 1 ? "image" : "images"} ready
+              {existingCount > 0 && ` (${totalCount} total)`}
             </p>
           </div>
           <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
@@ -161,9 +165,19 @@ export default function ImageUpload({
             disabled={previews.length === 0}
             className="w-full py-3 sm:py-2 bg-blue-500 text-white rounded-lg active:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
           >
-            Process {totalCount} {totalCount === 1 ? "Image" : "Images"}
+            Process {previews.length}{" "}
+            {previews.length === 1 ? "Image" : "Images"}
           </button>
         </div>
+      )}
+
+      {onCancel && (
+        <button
+          onClick={onCancel}
+          className="w-full py-3 sm:py-2 text-sm text-gray-600 border border-gray-300 rounded-lg active:bg-gray-50 transition-colors"
+        >
+          Back to Review
+        </button>
       )}
     </div>
   );

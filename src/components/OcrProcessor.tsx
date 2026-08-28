@@ -1,18 +1,25 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { processImage } from "@/lib/ocr";
 import { parseScheduleText, deduplicateShifts } from "@/lib/parser";
 import { Shift } from "@/types";
 
 interface OcrProcessorProps {
   imageDataUrls: string[];
+  /**
+   * Index of the first of these images within the caller's full image list.
+   * Keeps `imageIndex` on each shift pointing at the right screenshot when
+   * only a newly added batch is processed.
+   */
+  indexOffset?: number;
   onComplete: (shifts: Shift[], rawText: string, warnings: string[]) => void;
   onError: (error: string) => void;
 }
 
 export default function OcrProcessor({
   imageDataUrls,
+  indexOffset = 0,
   onComplete,
   onError,
 }: OcrProcessorProps) {
@@ -21,6 +28,15 @@ export default function OcrProcessor({
   const [status, setStatus] = useState("Initializing OCR engine...");
 
   const totalImages = imageDataUrls.length;
+
+  // Held in refs so a parent re-render that changes callback identity can't
+  // restart an OCR run that's already in flight.
+  const onCompleteRef = useRef(onComplete);
+  const onErrorRef = useRef(onError);
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+    onErrorRef.current = onError;
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -73,8 +89,11 @@ export default function OcrProcessor({
         setProgress(100);
 
         const combinedText = allTexts.join("\n");
-        const allShifts = allTexts.flatMap((text, imageIndex) =>
-          parseScheduleText(text).map((s) => ({ ...s, imageIndex }))
+        const allShifts = allTexts.flatMap((text, batchIndex) =>
+          parseScheduleText(text).map((s) => ({
+            ...s,
+            imageIndex: indexOffset + batchIndex,
+          }))
         );
         const shifts = deduplicateShifts(allShifts);
         shifts.sort((a, b) => {
@@ -82,15 +101,12 @@ export default function OcrProcessor({
           return cmp !== 0 ? cmp : a.startTime.localeCompare(b.startTime);
         });
 
-        if (shifts.length === 0 && warnings.length === 0) {
-          onError("No shifts found. Make sure you're uploading a screenshot of your schedule in day view.");
-          return;
-        }
-
-        onComplete(shifts, combinedText, warnings);
+        // Whether an empty result is fatal depends on shifts the caller may
+        // already hold from earlier batches, so report and let it decide.
+        onCompleteRef.current(shifts, combinedText, warnings);
       } catch (e) {
         if (!cancelled) {
-          onError((e as Error).message);
+          onErrorRef.current((e as Error).message);
         }
       }
     }
@@ -99,7 +115,7 @@ export default function OcrProcessor({
     return () => {
       cancelled = true;
     };
-  }, [imageDataUrls, totalImages, onComplete, onError]);
+  }, [imageDataUrls, totalImages, indexOffset]);
 
   return (
     <div className="space-y-4">

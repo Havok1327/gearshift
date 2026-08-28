@@ -23,7 +23,7 @@ export const viewport: Viewport = {
 
 export const metadata: Metadata = {
   title: "GearShift",
-  description: "Upload your schedule screenshot and export it to your calendar",
+  description: "Add your schedule screenshot and export it to your calendar",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",

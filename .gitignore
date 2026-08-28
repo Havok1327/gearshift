@@ -34,3 +34,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local debug screenshots (real schedule data - keep out of a public repo)
+/images/
+ocr-output.txt

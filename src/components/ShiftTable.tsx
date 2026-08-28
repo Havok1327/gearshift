@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Shift } from "@/types";
+import { generateId } from "@/lib/id";
 
 interface ShiftTableProps {
   shifts: Shift[];
@@ -11,8 +12,6 @@ interface ShiftTableProps {
 }
 
 const DEFAULT_TITLE_KEY = "gearshift-default-title";
-
-let nextId = 1000;
 
 export default function ShiftTable({
   shifts,
@@ -51,7 +50,7 @@ export default function ShiftTable({
     onShiftsChange([
       ...shifts,
       {
-        id: String(nextId++),
+        id: generateId(),
         date: "",
         startTime: "09:00",
         endTime: "17:00",
@@ -102,7 +101,7 @@ export default function ShiftTable({
         <div className="text-center py-8 text-gray-500">
           <p>No shifts were extracted from the image.</p>
           <p className="text-sm mt-1">
-            Try uploading a clearer screenshot, or add shifts manually.
+            Try adding a clearer screenshot, or enter shifts manually.
           </p>
         </div>
       ) : (

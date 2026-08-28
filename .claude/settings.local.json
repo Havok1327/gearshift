@@ -10,7 +10,9 @@
       "Bash(gh repo rename:*)",
       "Bash(git remote get-url:*)",
       "Bash(ls:*)",
-      "Bash(npm audit:*)"
+      "Bash(npm audit:*)",
+      "Bash(npx vercel:*)",
+      "Bash(cd:*)"
     ]
   }
 }

@@ -1,9 +1,5 @@
 import { Shift } from "@/types";
-
-let nextId = 1;
-function generateId(): string {
-  return String(nextId++);
-}
+import { generateId } from "@/lib/id";
 
 const MONTHS: Record<string, string> = {
   jan: "01", feb: "02", mar: "03", apr: "04",

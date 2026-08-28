@@ -5,11 +5,16 @@ import ImageUpload from "@/components/ImageUpload";
 import OcrProcessor from "@/components/OcrProcessor";
 import ShiftTable from "@/components/ShiftTable";
 import ExportOptions from "@/components/ExportOptions";
+import { deduplicateShifts } from "@/lib/parser";
 import { Shift, WorkflowStep } from "@/types";
 
 export default function Home() {
   const [step, setStep] = useState<WorkflowStep>("upload");
+  // Screenshots already run through OCR. `pendingImages` is the batch waiting
+  // to be processed; keeping them separate is what lets "Add More Images"
+  // append to the existing schedule instead of replacing it.
   const [imageDataUrls, setImageDataUrls] = useState<string[]>([]);
+  const [pendingImages, setPendingImages] = useState<string[]>([]);
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [rawText, setRawText] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -29,32 +34,58 @@ export default function Home() {
   }, [step]);
 
   const handleImagesSelected = useCallback((dataUrls: string[]) => {
-    setImageDataUrls(dataUrls);
+    setPendingImages(dataUrls);
     setError(null);
     setStep("processing");
   }, []);
 
-  const handleOcrComplete = useCallback((extractedShifts: Shift[], text: string, ocrWarnings: string[]) => {
-    // Apply this device's saved default title (if any) to every freshly
-    // extracted shift. Done here — once, at extraction time — so later
-    // per-shift edits in the review step are never clobbered.
-    const defaultTitle =
-      typeof window !== "undefined"
-        ? localStorage.getItem("gearshift-default-title")?.trim()
-        : null;
-    setShifts(
-      defaultTitle
+  const handleOcrComplete = useCallback(
+    (extractedShifts: Shift[], text: string, ocrWarnings: string[]) => {
+      // Apply this device's saved default title (if any) to every freshly
+      // extracted shift. Done here — once, at extraction time — so later
+      // per-shift edits in the review step are never clobbered.
+      const defaultTitle =
+        typeof window !== "undefined"
+          ? localStorage.getItem("gearshift-default-title")?.trim()
+          : null;
+      const titled = defaultTitle
         ? extractedShifts.map((s) => ({ ...s, title: defaultTitle }))
-        : extractedShifts
-    );
-    setRawText(text);
-    setWarnings(ocrWarnings);
-    setStep("review");
-  }, []);
+        : extractedShifts;
+
+      // Merge with anything from earlier batches rather than replacing it.
+      const merged = deduplicateShifts([...shifts, ...titled]);
+      merged.sort((a, b) => {
+        const cmp = a.date.localeCompare(b.date);
+        return cmp !== 0 ? cmp : a.startTime.localeCompare(b.startTime);
+      });
+
+      if (merged.length === 0) {
+        // Nothing usable anywhere — don't keep the screenshots that produced
+        // nothing, and send the user back to try again.
+        setPendingImages([]);
+        setError(
+          "No shifts found. Make sure you're adding a screenshot of your schedule in day view."
+        );
+        setStep("upload");
+        return;
+      }
+
+      setImageDataUrls((prev) => [...prev, ...pendingImages]);
+      setPendingImages([]);
+      setShifts(merged);
+      setRawText((prev) => (prev ? `${prev}
+${text}` : text));
+      setWarnings(ocrWarnings);
+      setStep("review");
+    },
+    [shifts, pendingImages]
+  );
 
   const handleOcrError = useCallback((errorMsg: string) => {
+    // Drop only the failed batch — screenshots and shifts already processed
+    // stay put so the user doesn't lose earlier work.
     setError(errorMsg);
-    setImageDataUrls([]);
+    setPendingImages([]);
     setStep("upload");
   }, []);
 
@@ -62,9 +93,15 @@ export default function Home() {
     setStep("upload");
   }, []);
 
+  const handleBackToReview = useCallback(() => {
+    setError(null);
+    setStep("review");
+  }, []);
+
   const handleReset = () => {
     setStep("upload");
     setImageDataUrls([]);
+    setPendingImages([]);
     setShifts([]);
     setRawText("");
     setError(null);
@@ -100,7 +137,7 @@ export default function Home() {
   }, [bugDescription, rawText]);
 
   const steps: { key: WorkflowStep; label: string }[] = [
-    { key: "upload", label: "Upload" },
+    { key: "upload", label: "Add" },
     { key: "processing", label: "Process" },
     { key: "review", label: "Review" },
     { key: "export", label: "Export" },
@@ -117,7 +154,7 @@ export default function Home() {
             GearShift
           </h1>
           <p className="mt-1 text-sm sm:text-base text-gray-600">
-            Upload your schedule screenshots and export to your calendar
+            Add your schedule screenshots and export to your calendar
           </p>
         </div>
 
@@ -168,12 +205,14 @@ export default function Home() {
             <ImageUpload
               onImagesSelected={handleImagesSelected}
               existingCount={imageDataUrls.length}
+              onCancel={shifts.length > 0 ? handleBackToReview : undefined}
             />
           )}
 
-          {step === "processing" && imageDataUrls.length > 0 && (
+          {step === "processing" && pendingImages.length > 0 && (
             <OcrProcessor
-              imageDataUrls={imageDataUrls}
+              imageDataUrls={pendingImages}
+              indexOffset={imageDataUrls.length}
               onComplete={handleOcrComplete}
               onError={handleOcrError}
             />
@@ -372,28 +411,42 @@ export default function Home() {
             How to Use
           </summary>
           <div className="px-4 sm:px-6 pb-4 sm:pb-6 text-sm text-gray-600 space-y-3">
-            <ol className="list-decimal list-inside space-y-2">
+            <div className="pb-1">
+              <p>
+                <strong className="text-gray-700">Before you start</strong> - Open your scheduling app, go to the <strong>day view</strong>, and screenshot your upcoming shifts. Take several if your schedule spans more than a week. Overlap is fine, duplicate shifts get removed automatically.
+              </p>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/example-schedule.jpg"
+                alt="Example schedule screenshot showing day view with shifts"
+                className="mt-2 rounded-lg border border-gray-200 max-w-[280px] w-full"
+              />
+            </div>
+            <ol className="list-decimal list-inside space-y-3">
               <li>
-                <strong className="text-gray-700">Take a screenshot</strong> — Open your scheduling app, go to the <strong>day view</strong>, and take screenshots of your upcoming shifts. You can upload multiple screenshots if your schedule spans several weeks. Don&apos;t worry about overlap — duplicate shifts are automatically removed.
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src="/example-schedule.jpg"
-                  alt="Example schedule screenshot showing day view with shifts"
-                  className="mt-2 rounded-lg border border-gray-200 max-w-[280px] w-full"
-                />
+                <strong className="text-gray-700">Add</strong> - Tap the dashed box to pick your screenshots, or drag them in on a computer. Select as many as you like. Thumbnails appear underneath, and you can tap the <strong>&times;</strong> on any one to drop it. When the set looks right, tap <strong>Process Images</strong> at the bottom.
               </li>
               <li>
-                <strong className="text-gray-700">Upload</strong> — Tap the upload area or drag-and-drop your screenshot images. You can select multiple at once or add more later.
+                <strong className="text-gray-700">Process</strong> - Your device reads the text out of each screenshot and pulls out the dates, times, and shift names. Expect a few seconds per image. Nothing is sent anywhere, it all runs on your phone. When it finishes, the app moves you to Review by itself, so there&apos;s no button to tap here.
               </li>
               <li>
-                <strong className="text-gray-700">Review</strong> — Check the extracted shifts. Edit dates, times, or titles if needed. Use the bulk title field to rename all shifts at once. Duplicates from overlapping screenshots are automatically removed. Tap the <strong>photo icon</strong> on any shift card to view the original screenshot it was pulled from — handy for double-checking times or titles the app may have misread.
-              </li>
-              <li>
-                <strong className="text-gray-700">Export</strong> — Choose your method:
+                <strong className="text-gray-700">Review</strong> - This is the important step: check every shift against your real schedule. Tap any date, time, or title to correct it.
                 <ul className="list-disc list-inside ml-4 mt-1 space-y-1">
-                  <li><strong>Add to Calendar / Download .ics</strong> — Exports all shifts as a single .ics calendar file. Works with any calendar app — Apple Calendar, Outlook, Google Calendar (import), and more. On iPhone/iPad, use Safari for best results.</li>
-                  <li><strong>Add to Google Calendar</strong> — Opens each shift one by one. Save each event, then tap &ldquo;Next Shift.&rdquo;</li>
+                  <li><strong>Default title for all shifts</strong> renames every shift at once, and remembers the name on this device for next time.</li>
+                  <li>The <strong>photo icon</strong> on a card opens the screenshot that shift came from, handy for double-checking a time or title the app may have misread.</li>
+                  <li><strong>+ Add Shift</strong> adds one by hand if the app missed it. The <strong>trash icon</strong> removes one you don&apos;t want.</li>
+                  <li><strong>Add More Images</strong> takes you back to add another screenshot. Its shifts join the ones you already have, and any duplicates are dropped.</li>
+                  <li><strong>Something look wrong? Report a bug</strong> sends us your description along with the schedule data, so we can fix whatever got misread.</li>
                 </ul>
+                <p className="mt-1">When the list is correct, tap <strong>Continue to Export</strong>. <strong>Start Over</strong> clears everything and takes you back to the beginning.</p>
+              </li>
+              <li>
+                <strong className="text-gray-700">Export</strong> - Choose one:
+                <ul className="list-disc list-inside ml-4 mt-1 space-y-1">
+                  <li><strong>Add to Calendar / Download .ics</strong> - Puts all your shifts in a single calendar file. Works with Apple Calendar, Outlook, Google Calendar (via import), and most others. On iPhone or iPad, use Safari for best results.</li>
+                  <li><strong>Add to Google Calendar</strong> - Opens your shifts one at a time. Save each event, switch back to this tab, then tap <strong>Next Shift</strong>.</li>
+                </ul>
+                <p className="mt-1">Spot a mistake? <strong>Back to Edit</strong> returns you to the list. Once you&apos;ve exported, the app reminds you that the screenshots are no longer needed and can be deleted from your Photos app.</p>
               </li>
             </ol>
             <div className="pt-2 border-t border-gray-100">
