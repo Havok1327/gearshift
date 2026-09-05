@@ -73,8 +73,7 @@ export default function Home() {
       setImageDataUrls((prev) => [...prev, ...pendingImages]);
       setPendingImages([]);
       setShifts(merged);
-      setRawText((prev) => (prev ? `${prev}
-${text}` : text));
+      setRawText((prev) => (prev ? `${prev}\n${text}` : text));
       setWarnings(ocrWarnings);
       setStep("review");
     },
@@ -434,7 +433,7 @@ ${text}` : text));
                 <ul className="list-disc list-inside ml-4 mt-1 space-y-1">
                   <li><strong>Default title for all shifts</strong> renames every shift at once, and remembers the name on this device for next time.</li>
                   <li>The <strong>photo icon</strong> on a card opens the screenshot that shift came from, handy for double-checking a time or title the app may have misread.</li>
-                  <li><strong>+ Add Shift</strong> adds one by hand if the app missed it. The <strong>trash icon</strong> removes one you don&apos;t want.</li>
+                  <li><strong>+ Add Shift</strong> (top right) is for a shift the app missed entirely. It appends a blank card at the bottom of the list with the date empty and a 9-5 placeholder, so set the date and times yourself. It picks up your default title automatically. The <strong>trash icon</strong> on a card deletes that shift.</li>
                   <li><strong>Add More Images</strong> takes you back to add another screenshot. Its shifts join the ones you already have, and any duplicates are dropped.</li>
                   <li><strong>Something look wrong? Report a bug</strong> sends us your description along with the schedule data, so we can fix whatever got misread.</li>
                 </ul>

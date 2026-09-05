@@ -119,7 +119,7 @@ Formspree endpoint: `https://formspree.io/f/meelrayd`
 Reports include user's description + full schedule data + app version. Received reports can be pasted into Claude to debug parser issues.
 
 ## Version
-v1.75.6 — displayed in footer via `process.env.APP_VERSION`.
+v1.75.7 — displayed in footer via `process.env.APP_VERSION`.
 **Note:** `APP_VERSION` is baked in at build time — restart dev server after bumping `package.json`.
 
 ## Dev Commands

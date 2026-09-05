@@ -54,7 +54,9 @@ export default function ShiftTable({
         date: "",
         startTime: "09:00",
         endTime: "17:00",
-        title: "Work Shift",
+        // Match whatever the parsed shifts are titled. Falls back to the same
+        // placeholder the parser uses when no default is set.
+        title: defaultTitle.trim() || "Work Shift",
       },
     ]);
   };
