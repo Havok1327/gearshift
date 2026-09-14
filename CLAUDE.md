@@ -84,7 +84,16 @@ REI/REI/.../Product Movement/Stocking
 28 @» 1.00 PM-9:30   ← noise + OCR'd period separator (A+)
 ```
 
-**State machine variables**: `afterDayName`, `pendingDay`, `pendingLabel`, `skipNextShift`
+**State machine variables**: `afterDayName`, `pendingDay`, `pendingDayName`, `pendingLabel`, `skipNextShift`, `preHeaderWindow`
+
+**Scrolled-off week header**: a screenshot usually starts mid-list, so the first
+visible shift often belongs to a week whose header is off-screen. The only month
+context left is the month dropdown, which shows the *selected* month and can lag
+the visible week (dropdown `September 2026` above a shift that is really Oct 3).
+`buildPreHeaderWindow()` scans ahead to the next week header and maps the seven
+day numbers ending the day before it starts to their real month/year. A surviving
+day-of-week name vetoes the window when the weekday disagrees - that means a week
+header went missing, not that the dropdown lagged.
 
 **Title priority**: `pendingLabel` (shift type label above the time) → last two slash-path segments below the time (e.g. `"Hardgoods - Action Sports"`)
 
@@ -119,7 +128,7 @@ Formspree endpoint: `https://formspree.io/f/meelrayd`
 Reports include user's description + full schedule data + app version. Received reports can be pasted into Claude to debug parser issues.
 
 ## Version
-v1.75.7 — displayed in footer via `process.env.APP_VERSION`.
+v1.75.8 — displayed in footer via `process.env.APP_VERSION`.
 **Note:** `APP_VERSION` is baked in at build time — restart dev server after bumping `package.json`.
 
 ## Dev Commands

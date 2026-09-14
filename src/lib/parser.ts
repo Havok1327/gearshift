@@ -16,6 +16,65 @@ const DAY_INDEX: Record<string, number> = {
 const MONTH_PREFIX_RE = /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)/i;
 const TIME_RANGE_RE = /(\d{1,2}[:.]\d{2}\s*[AaPp][Mm])\s*[-–—]\s*(\d{1,2}[:.]\d{2}\s*[AaPp][Mm])/;
 
+// Week header: "February 22 - 28", "March O1 - 07", or a cross-month range like
+// "May 31 - June 06". Captures: [1] start month, [2] start day, [3] end month.
+const WEEK_HEADER_RE =
+  /^(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(\S+)\s*[-–—]\s*(?:(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+)?\S+/i;
+
+/**
+ * A screenshot usually starts mid-list, so the first visible shift often belongs
+ * to a week whose header scrolled off the top. The only month context left is
+ * the month dropdown, which shows the *selected* month and can lag the visible
+ * week (e.g. dropdown "September 2026" above a shift that is really Oct 3).
+ *
+ * The next week header down the page pins it: that week is preceded by the seven
+ * days ending the day before it starts. This maps each of those seven day
+ * numbers to its real month/year, so a shift parsed before any week header can
+ * still be placed correctly.
+ */
+function buildPreHeaderWindow(
+  lines: string[],
+  startIdx: number,
+  dropdownMonth: string,
+  dropdownYear: string
+): Map<number, { month: string; year: string }> | null {
+  for (let j = startIdx; j < lines.length; j++) {
+    const m = lines[j].match(WEEK_HEADER_RE);
+    if (!m) continue;
+
+    const headerMonth = MONTHS[m[1].toLowerCase().slice(0, 3)];
+    const headerDay = parseInt(m[2].replace(/\D/g, ""), 10);
+    if (!headerMonth || !headerDay) return null;
+
+    // Dropdown month and header month can straddle a year boundary (dropdown
+    // "December" above a "January 04 - 10" header, or the reverse).
+    const hm = parseInt(headerMonth, 10);
+    const dm = parseInt(dropdownMonth, 10);
+    const dy = parseInt(dropdownYear, 10);
+    const headerYear = dm - hm > 6 ? dy + 1 : hm - dm > 6 ? dy - 1 : dy;
+
+    const anchor = Date.UTC(headerYear, hm - 1, headerDay);
+    const window = new Map<number, { month: string; year: string }>();
+    for (let back = 1; back <= 7; back++) {
+      const d = new Date(anchor - back * 86400000);
+      window.set(d.getUTCDate(), {
+        month: String(d.getUTCMonth() + 1).padStart(2, "0"),
+        year: String(d.getUTCFullYear()),
+      });
+    }
+    return window;
+  }
+  return null;
+}
+
+/** True when the given date falls on the weekday named by an OCR'd "Mon"/"Tue"/... line. */
+function matchesDayName(year: string, month: string, day: number, dayName: string): boolean {
+  const idx = dayNameToIndex(dayName);
+  if (idx === null) return false;
+  const d = new Date(Date.UTC(parseInt(year, 10), parseInt(month, 10) - 1, day));
+  return d.getUTCDay() === idx;
+}
+
 function dayNameToIndex(name: string): number | null {
   const key = name.toLowerCase().slice(0, 3);
   return key in DAY_INDEX ? DAY_INDEX[key] : null;
@@ -99,6 +158,10 @@ export function parseScheduleText(rawText: string): Shift[] {
     endYear: string;
   } | null = null;
 
+  // Real month/year for each day of the week whose header scrolled off the top
+  // of the screenshot. Live only until the first week header is reached.
+  let preHeaderWindow: Map<number, { month: string; year: string }> | null = null;
+
   // State for Format B parsing
   let afterDayName = false;   // true after seeing Mon/Tue/etc.
   let pendingDay = "";        // day number seen on its own line
@@ -136,16 +199,13 @@ export function parseScheduleText(rawText: string): Shift[] {
       currentYear = monthYearMatch[2];
       lastDayNum = 0;
       weekSpan = null;
+      preHeaderWindow = buildPreHeaderWindow(lines, i + 1, currentMonth, currentYear);
       resetDayState();
       continue;
     }
 
-    // Week header: "February 22 - 28", "March O1 - 07", or a cross-month range
-    // like "May 31 - June 06". Captures: [1] start month, [2] start day,
-    // [3] optional end month. Cross-month ranges record a weekSpan boundary.
-    const weekHeaderMatch = line.match(
-      /^(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(\S+)\s*[-–—]\s*(?:(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+)?\S+/i
-    );
+    // Week header. Cross-month ranges record a weekSpan boundary.
+    const weekHeaderMatch = line.match(WEEK_HEADER_RE);
     if (weekHeaderMatch) {
       const startMonth = MONTHS[weekHeaderMatch[1].toLowerCase().slice(0, 3)];
       const startDay = parseInt(weekHeaderMatch[2].replace(/\D/g, ""), 10);
@@ -163,6 +223,7 @@ export function parseScheduleText(rawText: string): Shift[] {
       } else {
         weekSpan = null;
       }
+      preHeaderWindow = null;
       resetDayState();
       continue;
     }
@@ -199,25 +260,24 @@ export function parseScheduleText(rawText: string): Shift[] {
       continue;
     }
 
-    // Format B+ / Format A+: day number + OCR noise token after a day-of-week line
-    // e.g. "26 & HG fit"        → label, time on next line (Format B+)
-    //      "3 > 8:00 AM-4:30"   → time on this line (Format A+), fall through
-    //      "28 @» 1.00 PM-9:30" → time on this line with OCR'd period, fall through
+    // Format A / B+: day number followed by more content on the same line.
+    // e.g. "3 4:00 PM-9:00 PM"   → time on this line, fall through (Format A)
+    //      "3 > 8:00 AM-4:30"    → same, with an OCR noise token (Format A+)
+    //      "28 @» 1.00 PM-9:30"  → same, with an OCR'd period separator
+    //      "26 & HG fit"         → noise + label, time on the next line (Format B+)
     if (afterDayName) {
-      const noisyDayLine = line.match(/^(\d{1,2})\s+\S+\s*(.*)/);
-      if (noisyDayLine) {
-        const dayNum = noisyDayLine[1].padStart(2, "0");
-        const remainder = noisyDayLine[2].trim();
-        if (TIME_RANGE_RE.test(remainder)) {
-          // Time is on this same line — set pendingDay and fall through to timeMatch
-          pendingDay = dayNum;
-        } else {
-          // Time is on next line — Format B+ with noise
-          pendingDay = dayNum;
-          pendingLabel = remainder;
+      const dayLine = line.match(/^(\d{1,2})\s+(.+)/);
+      if (dayLine) {
+        pendingDay = dayLine[1].padStart(2, "0");
+        const rest = dayLine[2].trim();
+        if (!TIME_RANGE_RE.test(rest)) {
+          // Time is on a later line — drop the leading OCR noise token and take
+          // what's left as the shift label.
+          pendingLabel = rest.replace(/^\S+\s*/, "").trim();
           afterDayName = false;
           continue;
         }
+        // Time is on this same line — fall through to timeMatch.
       }
     }
 
@@ -262,7 +322,17 @@ export function parseScheduleText(rawText: string): Shift[] {
       let year = currentYear;
       let month = currentMonth;
 
-      if (weekSpan) {
+      const windowed = preHeaderWindow?.get(dayNum);
+      if (
+        windowed &&
+        // A surviving day-of-week name vetoes the window when they disagree:
+        // that means a week header went missing, not that the dropdown lagged.
+        (!pendingDayName ||
+          matchesDayName(windowed.year, windowed.month, dayNum, pendingDayName))
+      ) {
+        month = windowed.month;
+        year = windowed.year;
+      } else if (weekSpan) {
         // Cross-month week: days on/after the start day belong to the first
         // month; smaller day numbers have rolled into the second month.
         if (dayNum >= weekSpan.startDay) {
