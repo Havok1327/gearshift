@@ -22,22 +22,61 @@ const WEEK_HEADER_RE =
   /^(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(\S+)\s*[-–—]\s*(?:(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+)?\S+/i;
 
 /**
+ * The seven dates of one week, keyed by day-of-month.
+ *
+ * `certain` is true when the week came from a week header visible in the
+ * screenshot, false when it was inferred from the next header down the page.
+ * An inferred week is a good guess, not a fact, so a day-of-week name that
+ * disagrees with it is allowed to veto it.
+ */
+type WeekWindow = {
+  days: Map<number, { month: string; year: string }>;
+  certain: boolean;
+};
+
+/** Map the seven dates starting at `startUtc` onto their day-of-month numbers. */
+function buildWeek(startUtc: number, certain: boolean): WeekWindow {
+  const days = new Map<number, { month: string; year: string }>();
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(startUtc + i * 86400000);
+    days.set(d.getUTCDate(), {
+      month: String(d.getUTCMonth() + 1).padStart(2, "0"),
+      year: String(d.getUTCFullYear()),
+    });
+  }
+  return { days, certain };
+}
+
+/**
+ * A week header names a month but never a year. The month dropdown supplies the
+ * year, but the two can straddle a year boundary (dropdown "December" above a
+ * "January 04 - 10" header, or the reverse).
+ */
+function resolveHeaderYear(
+  headerMonth: number,
+  dropdownMonth: string,
+  dropdownYear: string
+): number {
+  const dm = parseInt(dropdownMonth, 10);
+  const dy = parseInt(dropdownYear, 10);
+  return dm - headerMonth > 6 ? dy + 1 : headerMonth - dm > 6 ? dy - 1 : dy;
+}
+
+/**
  * A screenshot usually starts mid-list, so the first visible shift often belongs
  * to a week whose header scrolled off the top. The only month context left is
  * the month dropdown, which shows the *selected* month and can lag the visible
  * week (e.g. dropdown "September 2026" above a shift that is really Oct 3).
  *
  * The next week header down the page pins it: that week is preceded by the seven
- * days ending the day before it starts. This maps each of those seven day
- * numbers to its real month/year, so a shift parsed before any week header can
- * still be placed correctly.
+ * days ending the day before it starts.
  */
 function buildPreHeaderWindow(
   lines: string[],
   startIdx: number,
   dropdownMonth: string,
   dropdownYear: string
-): Map<number, { month: string; year: string }> | null {
+): WeekWindow | null {
   for (let j = startIdx; j < lines.length; j++) {
     const m = lines[j].match(WEEK_HEADER_RE);
     if (!m) continue;
@@ -46,23 +85,30 @@ function buildPreHeaderWindow(
     const headerDay = parseInt(m[2].replace(/\D/g, ""), 10);
     if (!headerMonth || !headerDay) return null;
 
-    // Dropdown month and header month can straddle a year boundary (dropdown
-    // "December" above a "January 04 - 10" header, or the reverse).
     const hm = parseInt(headerMonth, 10);
-    const dm = parseInt(dropdownMonth, 10);
-    const dy = parseInt(dropdownYear, 10);
-    const headerYear = dm - hm > 6 ? dy + 1 : hm - dm > 6 ? dy - 1 : dy;
+    const anchor = Date.UTC(
+      resolveHeaderYear(hm, dropdownMonth, dropdownYear),
+      hm - 1,
+      headerDay
+    );
+    return buildWeek(anchor - 7 * 86400000, false);
+  }
+  return null;
+}
 
-    const anchor = Date.UTC(headerYear, hm - 1, headerDay);
-    const window = new Map<number, { month: string; year: string }>();
-    for (let back = 1; back <= 7; back++) {
-      const d = new Date(anchor - back * 86400000);
-      window.set(d.getUTCDate(), {
-        month: String(d.getUTCMonth() + 1).padStart(2, "0"),
-        year: String(d.getUTCFullYear()),
-      });
+/**
+ * Find the one day in a week that falls on the named weekday. Every weekday
+ * appears exactly once in seven consecutive dates, so a surviving "Sat" picks
+ * out a single date.
+ */
+function findDayByName(
+  week: WeekWindow,
+  dayName: string
+): { day: number; month: string; year: string } | null {
+  for (const [day, my] of Array.from(week.days.entries())) {
+    if (matchesDayName(my.year, my.month, day, dayName)) {
+      return { day, month: my.month, year: my.year };
     }
-    return window;
   }
   return null;
 }
@@ -148,19 +194,10 @@ export function parseScheduleText(rawText: string): Shift[] {
   let currentYear = "";
   let lastDayNum = 0; // tracks last processed day for month-rollover detection
 
-  // Set when a week header spans two months (e.g. "May 31 - June 06"), so each
-  // day in that week is assigned to the correct month and year.
-  let weekSpan: {
-    startDay: number;
-    startMonth: string;
-    startYear: string;
-    endMonth: string;
-    endYear: string;
-  } | null = null;
-
-  // Real month/year for each day of the week whose header scrolled off the top
-  // of the screenshot. Live only until the first week header is reached.
-  let preHeaderWindow: Map<number, { month: string; year: string }> | null = null;
+  // The week the current shift belongs to, when one is known: either from a
+  // visible week header, or inferred for the week whose header scrolled off the
+  // top of the screenshot.
+  let currentWeek: WeekWindow | null = null;
 
   // State for Format B parsing
   let afterDayName = false;   // true after seeing Mon/Tue/etc.
@@ -198,32 +235,24 @@ export function parseScheduleText(rawText: string): Shift[] {
       currentMonth = MONTHS[monthYearMatch[1].toLowerCase().slice(0, 3)];
       currentYear = monthYearMatch[2];
       lastDayNum = 0;
-      weekSpan = null;
-      preHeaderWindow = buildPreHeaderWindow(lines, i + 1, currentMonth, currentYear);
+      currentWeek = buildPreHeaderWindow(lines, i + 1, currentMonth, currentYear);
       resetDayState();
       continue;
     }
 
-    // Week header. Cross-month ranges record a weekSpan boundary.
+    // Week header: pins this week's seven dates exactly.
     const weekHeaderMatch = line.match(WEEK_HEADER_RE);
     if (weekHeaderMatch) {
       const startMonth = MONTHS[weekHeaderMatch[1].toLowerCase().slice(0, 3)];
       const startDay = parseInt(weekHeaderMatch[2].replace(/\D/g, ""), 10);
-      const endMonthName = weekHeaderMatch[3];
-      currentMonth = startMonth;
-
-      if (endMonthName && startDay) {
-        const endMonth = MONTHS[endMonthName.toLowerCase().slice(0, 3)];
-        // A Dec→Jan range crosses into the next year.
-        const endYear =
-          parseInt(endMonth, 10) < parseInt(startMonth, 10)
-            ? String(parseInt(currentYear, 10) + 1)
-            : currentYear;
-        weekSpan = { startDay, startMonth, startYear: currentYear, endMonth, endYear };
-      } else {
-        weekSpan = null;
+      if (startMonth && startDay && currentYear) {
+        const sm = parseInt(startMonth, 10);
+        // Read the dropdown month before currentMonth moves to the header's.
+        const headerYear = resolveHeaderYear(sm, currentMonth, currentYear);
+        currentWeek = buildWeek(Date.UTC(headerYear, sm - 1, startDay), true);
+        currentMonth = startMonth;
+        currentYear = String(headerYear);
       }
-      preHeaderWindow = null;
       resetDayState();
       continue;
     }
@@ -304,12 +333,19 @@ export function parseScheduleText(rawText: string): Shift[] {
         }
       }
 
-      // OCR-garbled day: infer from the surviving day-of-week name
-      // (e.g. "Thu" line survived but "11" came through as "N").
+      // OCR-garbled day: the day number is gone entirely (e.g. "11" came
+      // through as "N"), but the "Thu" line survived. A known week names each
+      // weekday exactly once, so it pins the date outright. Failing that, fall
+      // back to scanning ahead for a day-name + day-number pair to count from.
       if (!day && pendingDayName) {
-        const inferred = inferDayFromDayName(pendingDayName, i + 1, lines);
-        if (inferred !== null) {
-          day = String(inferred).padStart(2, "0");
+        const fromWeek = currentWeek && findDayByName(currentWeek, pendingDayName);
+        if (fromWeek) {
+          day = String(fromWeek.day).padStart(2, "0");
+        } else {
+          const inferred = inferDayFromDayName(pendingDayName, i + 1, lines);
+          if (inferred !== null) {
+            day = String(inferred).padStart(2, "0");
+          }
         }
       }
 
@@ -318,37 +354,46 @@ export function parseScheduleText(rawText: string): Shift[] {
         continue;
       }
 
-      const dayNum = parseInt(day, 10);
+      let dayNum = parseInt(day, 10);
       let year = currentYear;
       let month = currentMonth;
 
-      const windowed = preHeaderWindow?.get(dayNum);
-      if (
-        windowed &&
-        // A surviving day-of-week name vetoes the window when they disagree:
-        // that means a week header went missing, not that the dropdown lagged.
+      const hit = currentWeek?.days.get(dayNum);
+      const hitMatchesName =
+        !!hit &&
         (!pendingDayName ||
-          matchesDayName(windowed.year, windowed.month, dayNum, pendingDayName))
-      ) {
-        month = windowed.month;
-        year = windowed.year;
-      } else if (weekSpan) {
-        // Cross-month week: days on/after the start day belong to the first
-        // month; smaller day numbers have rolled into the second month.
-        if (dayNum >= weekSpan.startDay) {
-          month = weekSpan.startMonth;
-          year = weekSpan.startYear;
-        } else {
-          month = weekSpan.endMonth;
-          year = weekSpan.endYear;
+          matchesDayName(hit.year, hit.month, dayNum, pendingDayName));
+
+      if (hit && hitMatchesName) {
+        month = hit.month;
+        year = hit.year;
+      } else if (currentWeek && !hit && pendingDayName) {
+        // The day number isn't one of the seven this week covers, so OCR
+        // mangled it - a dropped leading digit turns "21" into "1". The week
+        // fixes seven consecutive dates and the weekday name picks exactly one
+        // of them, so a surviving "Sat" recovers the real date.
+        const recovered = findDayByName(currentWeek, pendingDayName);
+        if (recovered) {
+          dayNum = recovered.day;
+          day = String(recovered.day).padStart(2, "0");
+          month = recovered.month;
+          year = recovered.year;
         }
+      } else if (hit && currentWeek?.certain) {
+        // The day number is inside the week but the weekday name disagrees. A
+        // visible header pins the week, so keep the in-range number.
+        month = hit.month;
+        year = hit.year;
       } else if (lastDayNum > 0 && dayNum < lastDayNum && lastDayNum - dayNum > 15) {
-        // No week header to disambiguate: a large backward jump in the day
-        // number means the schedule crossed into the next month.
+        // No usable week context: either none was found, or an inferred week was
+        // vetoed by a disagreeing weekday name (which means a week header went
+        // missing, not that the dropdown lagged). Fall back to the dropdown
+        // month, where a large backward jump means the month rolled over.
         advanceMonth();
         month = currentMonth;
         year = currentYear;
       }
+
       lastDayNum = dayNum;
 
       const date = `${year}-${month}-${day}`;

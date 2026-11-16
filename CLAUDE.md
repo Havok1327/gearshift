@@ -11,6 +11,7 @@ A Next.js 14 web app that converts work schedule screenshots into calendar event
 - **ics v3** — generates `.ics` files
 - **googleapis** — installed but the Google Calendar flow uses direct URL opens, no OAuth
 - **Formspree** — client-side bug report form submissions (endpoint: `https://formspree.io/f/meelrayd`)
+- **Vitest** — parser regression tests (`npm test`); the only test tooling in the repo
 
 ## File Map
 ```
@@ -29,6 +30,7 @@ src/
     ShiftTable.tsx         # Editable shift cards + per-device default title + raw OCR debug view + per-card screenshot viewer
     ExportOptions.tsx      # ICS download button + Google Calendar step-through UI
   lib/
+    parser.test.ts         # Parser regression suite — add a case per bug report
     ocr.ts                 # Thin Tesseract.js wrapper → { text, confidence }
     id.ts                  # Shared collision-free id generator (crypto.randomUUID)
     parser.ts              # Regex parser: OCR text → Shift[]; deduplication; 12h→24h
@@ -84,16 +86,32 @@ REI/REI/.../Product Movement/Stocking
 28 @» 1.00 PM-9:30   ← noise + OCR'd period separator (A+)
 ```
 
-**State machine variables**: `afterDayName`, `pendingDay`, `pendingDayName`, `pendingLabel`, `skipNextShift`, `preHeaderWindow`
+**State machine variables**: `afterDayName`, `pendingDay`, `pendingDayName`, `pendingLabel`, `skipNextShift`, `currentWeek`
 
-**Scrolled-off week header**: a screenshot usually starts mid-list, so the first
-visible shift often belongs to a week whose header is off-screen. The only month
-context left is the month dropdown, which shows the *selected* month and can lag
-the visible week (dropdown `September 2026` above a shift that is really Oct 3).
-`buildPreHeaderWindow()` scans ahead to the next week header and maps the seven
-day numbers ending the day before it starts to their real month/year. A surviving
-day-of-week name vetoes the window when the weekday disagrees - that means a week
-header went missing, not that the dropdown lagged.
+**Week windows** (`WeekWindow`): the parser tracks one `currentWeek` - the seven
+dates of the week a shift belongs to, keyed by day-of-month. Built two ways:
+
+- **From a visible week header** (`certain: true`): the header pins the week
+  exactly. Cross-month ranges like `May 31 - June 06` fall out of plain date
+  arithmetic, which replaced the old `weekSpan` start-day comparison.
+- **Inferred, when the header scrolled off** (`certain: false`): a screenshot
+  usually starts mid-list, so the first visible shift often belongs to a week
+  whose header is off-screen. The only month context left is the month dropdown,
+  which shows the *selected* month and can lag the visible week (dropdown
+  `September 2026` above a shift that is really Oct 3). `buildPreHeaderWindow()`
+  scans ahead to the next week header and takes the seven days ending the day
+  before it starts. A surviving day-of-week name vetoes an *inferred* week when
+  the weekday disagrees - that means a week header went missing, not that the
+  dropdown lagged. A visible header is never vetoed.
+
+**OCR-mangled day numbers**: when the parsed day number is not one of the seven
+days `currentWeek` covers, OCR mangled it - a dropped leading digit turns `21`
+into `1`, or `24` into `4`. Seven consecutive dates contain each weekday exactly
+once, so a surviving `Sat` line recovers the real date via `findDayByName()`.
+
+**Year boundaries**: `resolveHeaderYear()` keeps a week header's year right when
+the header and the dropdown straddle New Year (`December 2026` dropdown above a
+`January 04 - 10` header resolves to 2027).
 
 **Title priority**: `pendingLabel` (shift type label above the time) → last two slash-path segments below the time (e.g. `"Hardgoods - Action Sports"`)
 
@@ -128,12 +146,27 @@ Formspree endpoint: `https://formspree.io/f/meelrayd`
 Reports include user's description + full schedule data + app version. Received reports can be pasted into Claude to debug parser issues.
 
 ## Version
-v1.75.8 — displayed in footer via `process.env.APP_VERSION`.
+v1.75.9 — displayed in footer via `process.env.APP_VERSION`.
 **Note:** `APP_VERSION` is baked in at build time — restart dev server after bumping `package.json`.
 
 ## Dev Commands
 ```bash
-npm run dev    # start dev server (localhost:3000, auto-increments if busy)
+npm run dev        # start dev server (localhost:3000, auto-increments if busy)
 npm run build
 npm run lint
+npm test           # parser regression suite (vitest, single run)
+npm run test:watch # same, re-runs on save
 ```
+
+## Testing
+`src/lib/parser.test.ts` is the only test file, and the parser is the only thing
+worth testing: everything else is thin UI over it. The parser's rules interact,
+so a fix for one screenshot format can silently break another — the suite exists
+to catch exactly that.
+
+**Workflow for a bug report:** a Formspree report contains the exact OCR text
+that broke. Paste it into a new `it(...)` with the dates the screenshot really
+shows, run `npm test`, and confirm it fails *before* fixing anything. Then fix the
+parser until the new case passes and every existing case still does.
+
+Run `npm test` before pushing. Vercel does not run it.
