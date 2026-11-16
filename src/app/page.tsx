@@ -462,7 +462,7 @@ export default function Home() {
         </details>
 
         <p className="mt-4 sm:mt-6 text-center text-xs text-gray-400">
-          All processing happens in your browser. No data is sent to any server.
+          Your schedule is processed in your browser and never uploaded. Sending a bug report is the one exception.
         </p>
         <p className="mt-2 text-center text-xs text-gray-400">
           Results may not be 100% accurate. Always verify your shifts against your official schedule. We are not responsible for missed or incorrect shifts.
